@@ -1,0 +1,140 @@
+package com.example.lab5_starter;
+
+import android.os.Bundle;
+import android.util.Log;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.ListView;
+
+import androidx.activity.EdgeToEdge;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import android.widget.Toast;    //feedback text
+
+import java.util.ArrayList;
+
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.CollectionReference;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
+import com.google.firebase.firestore.FirebaseFirestoreException;
+import com.google.firebase.firestore.QuerySnapshot;
+import com.google.firebase.firestore.DocumentReference;
+
+public class MainActivity extends AppCompatActivity implements CityDialogFragment.CityDialogListener {
+
+    private Button addCityButton;
+    private ListView cityListView;
+    private Button deleteButton;
+
+
+    private ArrayList<City> cityArrayList;
+    private ArrayAdapter<City> cityArrayAdapter;
+    
+    private FirebaseFirestore db;
+    private CollectionReference citiesRef;
+    private int selectedPosition = -1; //tracker
+
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        EdgeToEdge.enable(this);
+        setContentView(R.layout.activity_main);
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
+            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            return insets;
+        });
+
+        db = FirebaseFirestore.getInstance();
+        citiesRef = db.collection("cities");
+
+        // Set views
+        addCityButton = findViewById(R.id.buttonAddCity);
+        cityListView = findViewById(R.id.listviewCities);
+        deleteButton = findViewById(R.id.buttonDeleteCity);     //added delete button
+
+
+        // create city array
+        cityArrayList = new ArrayList<>();
+        cityArrayAdapter = new CityArrayAdapter(this, cityArrayList);
+        cityListView.setAdapter(cityArrayAdapter);
+
+        citiesRef.addSnapshotListener((value, error) -> {
+            if (error != null) {
+                Log.e("Firestore", error.toString());
+                return;
+            }
+            if(value != null) {
+                cityArrayList.clear();
+                for (QueryDocumentSnapshot snapshot : value) {
+                    String name = snapshot.getString("name");
+                    String province = snapshot.getString("province");
+                    cityArrayList.add(new City(name, province));
+                }
+                cityArrayAdapter.notifyDataSetChanged();
+            }
+        });
+
+
+        // set listeners
+        addCityButton.setOnClickListener(view -> {
+            CityDialogFragment cityDialogFragment = new CityDialogFragment();
+            cityDialogFragment.show(getSupportFragmentManager(),"Add City");
+        });
+
+        //delete button
+        deleteButton.setOnClickListener(v -> {
+            if (selectedPosition != -1 && selectedPosition < cityArrayList.size()) {
+                //get city object to find document ID (name)
+                City cityToDelete = cityArrayList.get(selectedPosition);
+                String cityName = cityToDelete.getName();
+
+                //remove from firestore
+                citiesRef.document(cityName)
+                        .delete()
+                        .addOnSuccessListener(aVoid -> {
+                            Log.d("Firestore", "City deleted successfully");
+                            selectedPosition = -1; //reset selection
+                        })
+                        .addOnFailureListener(e -> Log.e("Firestore", "Error deleting city", e));
+            } else {
+                Toast.makeText(MainActivity.this, "Please select a city first", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+
+        cityListView.setOnItemClickListener((adapterView, view, i, l) -> {
+            selectedPosition = i; //store index of the tapped city
+
+            //selected city will glow
+            //reset all others to transparent
+            for (int j = 0; j < cityListView.getChildCount(); j++) {
+                cityListView.getChildAt(j).setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            }
+            view.setBackgroundColor(android.graphics.Color.parseColor("#D3E3FC"));
+
+            City city = cityArrayAdapter.getItem(i);
+        });
+
+    }
+
+    @Override
+    public void updateCity(City city, String title, String year) {
+        city.setName(title);
+        city.setProvince(year);
+        cityArrayAdapter.notifyDataSetChanged();
+    }
+
+    @Override
+    public void addCity(City city){
+        cityArrayList.add(city);
+        cityArrayAdapter.notifyDataSetChanged();
+
+        DocumentReference docRef = citiesRef.document(city.getName());
+        docRef.set(city);
+    }
+
+}
